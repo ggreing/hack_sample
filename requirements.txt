@@ -30,3 +30,4 @@ aiofiles>=23.0.0
 
 # 추가 유틸리티
 python-dotenv>=1.0.0
+mediapipe

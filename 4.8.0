@@ -1,7 +1,0 @@
-Collecting opencv-python-headless
-  Downloading opencv_python_headless-4.11.0.86-cp37-abi3-win_amd64.whl.metadata (20 kB)
-Requirement already satisfied: numpy>=1.21.2 in c:\ai_recignizer_streamlit\attendance_env\lib\site-packages (from opencv-python-headless) (1.26.4)
-Downloading opencv_python_headless-4.11.0.86-cp37-abi3-win_amd64.whl (39.4 MB)
-   ---------------------------------------- 39.4/39.4 MB 5.1 MB/s eta 0:00:00
-Installing collected packages: opencv-python-headless
-Successfully installed opencv-python-headless-4.11.0.86
