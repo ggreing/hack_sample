@@ -1,0 +1,32 @@
+# 실시간 온라인 강의 출석 시스템 Requirements
+# Python 3.8+ 필요
+
+# 웹 프레임워크
+streamlit>=1.30.0
+streamlit-webrtc>=0.47.0
+
+# 컴퓨터 비전 및 이미지 처리
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+face-recognition>=1.3.0
+dlib>=19.24.0
+
+# 수치 연산
+numpy>=1.24.0
+scipy>=1.10.0
+
+# 네트워킹 및 통신
+python-socketio[client]>=5.8.0
+websocket-client>=1.6.0
+requests>=2.28.0
+
+# 데이터 처리
+pandas>=2.0.0
+pillow>=9.5.0
+
+# 비동기 처리
+asyncio-mqtt>=0.13.0
+aiofiles>=23.0.0
+
+# 추가 유틸리티
+python-dotenv>=1.0.0
