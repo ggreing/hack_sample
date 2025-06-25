@@ -31,3 +31,6 @@ aiofiles>=23.0.0
 # 추가 유틸리티
 python-dotenv>=1.0.0
 mediapipe
+
+# Google Gemini API
+google-generativeai>=0.8.5

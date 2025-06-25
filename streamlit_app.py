@@ -11,6 +11,7 @@ import face_recognition
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 import av
 import logging
+import os
 
 # 로깅 설정 추가
 logging.basicConfig(level=logging.INFO, 
@@ -261,20 +262,16 @@ class AttendanceAnalyzer:
 class VideoProcessor:
     def __init__(self, config=None):
         self.frame_count = 0
-        self.analysis_interval = 5  # 5프레임마다 분석 (성능과 반응성 균형)
-        self.display_interval = 15  # 15프레임마다 화면 표시 업데이트
-        self.display_result = None  # 화면 표시용 결과 저장
-        self.config = config  # config 참조 저장
-        
-        # 분석기 초기화 (한번만)
+        self.analysis_interval = 10  # 분석 빈도 낮춤(딜레이 최소화)
+        self.display_interval = 20   # 화면 표시 주기 완화
+        self.display_result = None
+        self.config = config
         try:
             self.analyzer = AttendanceAnalyzer(config=self.config)
             logger.info("VideoProcessor 초기화 완료")
         except Exception as e:
             logger.error(f"VideoProcessor 초기화 실패: {e}")
             raise e
-
-        # 분석 결과 저장용 변수
         self.last_analysis = None
         self.analysis_lock = Lock()
 
@@ -416,6 +413,12 @@ def main():
     # 역할 선택
     role = st.sidebar.selectbox("역할을 선택하세요", ["교수", "학생"])
 
+    # 학생 ID 입력 (학생 모드에서만)
+    if role == "학생":
+        student_id = st.sidebar.text_input("학생 식별자(이름/학번 등)", value="student1")
+    else:
+        student_id = None
+
     # 분석 파라미터 config (세션 상태로 관리)
     if 'analyze_config' not in st.session_state:
         st.session_state['analyze_config'] = {
@@ -430,6 +433,12 @@ def main():
         }
     config = st.session_state['analyze_config']
 
+    # 학생별 집중도 기록 세션 상태
+    if 'student_attention_history' not in st.session_state:
+        st.session_state['student_attention_history'] = {}
+    if 'student_attention_3min_avg' not in st.session_state:
+        st.session_state['student_attention_3min_avg'] = {}
+
     # 커스터마이징 패널
     render_customization_panel(role, config)
 
@@ -438,7 +447,6 @@ def main():
         {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
     )
 
-    # 레이아웃
     col1, col2 = st.columns(2)
 
     with col1:
@@ -449,7 +457,7 @@ def main():
             rtc_configuration=RTC_CONFIGURATION,
             video_processor_factory=lambda: VideoProcessor(config=config),
             media_stream_constraints={"video": True, "audio": False},
-            async_processing=False,  # 동기 처리로 변경
+            async_processing=True,  # 병렬 처리로 딜레이 최소화
         )
 
     with col2:
@@ -457,13 +465,63 @@ def main():
 
         status_placeholder = st.empty()
         metrics_placeholder = st.empty()
+        attention_chart_placeholder = st.empty()
 
         # 실시간 업데이트 루프
         if webrtc_ctx.state.playing and webrtc_ctx.video_processor:
+            attention_history = st.session_state['student_attention_history']
+            attention_3min_avg = st.session_state['student_attention_3min_avg']
+            # 학생별 마지막 저장 시각 추적용 딕셔너리
+            if 'last_save_time' not in st.session_state:
+                st.session_state['last_save_time'] = {}
+            last_save_time = st.session_state['last_save_time']
+            # 학생별 마지막 차트 갱신 시각 추적용 딕셔너리
+            if 'last_chart_update_time' not in st.session_state:
+                st.session_state['last_chart_update_time'] = {}
+            last_chart_update_time = st.session_state['last_chart_update_time']
+            DATA_FILE = 'student_attention_log.jsonl'
             while True:
                 try:
                     result = webrtc_ctx.video_processor.get_last_analysis()
                     if result:
+                        # 학생별 집중도 기록 (학생 모드에서만)
+                        if role == "학생" and student_id:
+                            now = time.time()
+                            # 기록 초기화
+                            if student_id not in attention_history:
+                                attention_history[student_id] = []
+                            # 기록 추가 (timestamp, attention_score)
+                            attention_history[student_id].append((now, result.get('attendance_score', 0.0)))
+                            # 3분(180초) 이내 데이터만 유지
+                            attention_history[student_id] = [x for x in attention_history[student_id] if now - x[0] <= 180]
+                            # 3분 평균 계산 및 저장
+                            if len(attention_history[student_id]) > 0:
+                                avg = sum([x[1] for x in attention_history[student_id]]) / len(attention_history[student_id])
+                                attention_3min_avg[student_id] = avg
+                            else:
+                                attention_3min_avg[student_id] = 0.0
+                            # --- 5초 단위로만 차트/metric 갱신 ---
+                            chart_last = last_chart_update_time.get(student_id, 0)
+                            if now - chart_last >= 5.0:
+                                with attention_chart_placeholder.container():
+                                    st.line_chart([x[1] for x in attention_history[student_id]], height=100, use_container_width=True)
+                                    st.metric("최근 3분 평균 집중도", f"{attention_3min_avg[student_id]:.2f}")
+                                last_chart_update_time[student_id] = now
+                            # --- 파일로 저장 (jsonl, 5초에 1회 제한) ---
+                            log_obj = {
+                                "student_id": student_id,
+                                "timestamp": now,
+                                "attention_score": result.get('attendance_score', 0.0)
+                            }
+                            # 5초에 한 번만 저장
+                            last_time = last_save_time.get(student_id, 0)
+                            if now - last_time >= 5.0:
+                                try:
+                                    with open(DATA_FILE, 'a', encoding='utf-8') as f:
+                                        f.write(json.dumps(log_obj, ensure_ascii=False) + '\n')
+                                    last_save_time[student_id] = now
+                                except Exception as e:
+                                    logger.error(f"집중도 파일 저장 오류: {e}")
                         with status_placeholder.container():
                             status_color = {
                                 "excellent": "🟢",
@@ -494,7 +552,7 @@ def main():
                     else:
                         with status_placeholder.container():
                             st.info("분석 결과를 기다리는 중...")
-                    time.sleep(0.2)
+                    time.sleep(0.05)  # sleep 시간 단축(딜레이 최소화)
                 except Exception as e:
                     logger.error(f"결과 표시 중 오류: {e}")
                     with status_placeholder.container():
